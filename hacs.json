@@ -1,0 +1,6 @@
+{
+  "name": "Gira 3000 BT",
+  "content_in_root": true,
+  "render_readme": true,
+  "homeassistant": "2025.7.4"
+}
