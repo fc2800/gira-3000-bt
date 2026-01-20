@@ -49,16 +49,14 @@ from .const import (
     SENSOR_TEMPERATURE_PREFIX,
     SENSOR_BRIGHTNESS_PREFIX,
     SENSOR_LENGTH_BYTES,
-    SENSOR_TEMPERATURE_SCALE,
-    SENSOR_BRIGHTNESS_SCALE,
     SENSOR_FRAME_LENGTH,
     SENSOR_SUFFIX_0,
     SENSOR_SUFFIX_1,
     SENSOR_CMD_TEMPERATURE,
     SENSOR_CMD_BRIGHTNESS,
-    SENSOR_TEMP_SIGN_THRESHOLD,
     SENSOR_TEMP_NEG_BASE,
     SENSOR_TEMP_DIVISOR,
+    SENSOR_TEMP_NEG_BASE_DIVISOR,
     SENSOR_LUX_A,
     SENSOR_LUX_B,
 )
@@ -207,19 +205,17 @@ class GiraPassiveBluetoothDataUpdateCoordinator(PassiveBluetoothDataUpdateCoordi
             data: dict[str, Any] = dict(getattr(self, "data", {}) or {})
 
             if cmd == SENSOR_CMD_TEMPERATURE:
-                # Signed temperature conversion like ESPHome lambda
-                if raw > SENSOR_TEMP_SIGN_THRESHOLD:
-                    temp_raw = SENSOR_TEMP_NEG_BASE - raw
+                # Signed temperature conversion
+                if raw > SENSOR_TEMP_NEG_BASE:
+                    data["sensor_temperature"] = (SENSOR_TEMP_NEG_BASE - raw) / SENSOR_TEMP_NEG_BASE_DIVISOR / SENSOR_TEMP_DIVISOR
                 else:
-                    temp_raw = raw
-                data["sensor_temperature"] = float(temp_raw) / SENSOR_TEMP_DIVISOR
+                    data["sensor_temperature"] = raw / SENSOR_TEMP_DIVISOR
 
             else:
-                # Log lux conversion like ESPHome lambda
-                lux = 10 ** (SENSOR_LUX_A * float(raw) + SENSOR_LUX_B)
-                if lux < 0:
-                    lux = 0.0
-                data["sensor_brightness"] = float(lux)
+                # Log lux conversion
+                data["sensor_brightness"] = 10 ** (SENSOR_LUX_A * float(raw) + SENSOR_LUX_B)
+                if data["sensor_brightness"] < 0:
+                    data["sensor_brightness"] = 0.0
 
             self.data = data
             self.async_update_listeners()
