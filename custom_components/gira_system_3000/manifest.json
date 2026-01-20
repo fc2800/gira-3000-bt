@@ -11,9 +11,9 @@
   "codeowners": ["@fc2800"],
   "config_flow": true,
   "dependencies": ["bluetooth_adapters"],
-  "documentation": "https://github.com/clentfort/girea-system-3000",
+  "documentation": "https://github.com/fc2800/gira-3000-bt",
   "integration_type": "device",
-  "issue_tracker": "https://github.com/stho/girea-system-3000/issues",
+  "issue_tracker": "https://github.com/fc2800/gira-3000-bt/issues",
   "logo": "logo.png",
   "icon": "icon.png"
 }
