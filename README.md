@@ -1,35 +1,132 @@
-# Gira 3000 BT System
+# Gira System 3000 – Bluetooth Low Energy (BLE)
 
-Local Home Assistant integration for Gira System 3000 Bluetooth devices.
-This integration supports shutters  "Jal+Schaltuhr", thermostats "Thermostat" , and passive sensors "Sensor Temp/Brightness" using the Home Assistant Bluetooth stack and ESPHome Bluetooth proxies.
-It is fully local, scales to many devices, and correctly implements GIRA’s undocumented BLE protocol quirks.
+Reverse-engineering documentation and tooling for **Gira System 3000**
+Bluetooth Low Energy devices.
 
-# Shutters ("Jal+Schaltuhr")
-•  Open / Close / Stop buttons
+This repository focuses on understanding and documenting the BLE protocol
+used by Gira System 3000 actuators and sensors in order to enable **local,
+cloud-free control** via ESP32 and Home Assistant.
 
-•  Absolute position control (0–100 %)
+---
 
-•  Live position updates via BLE advertisements
+## Scope and Goals
 
-•  No polling, no permanent connection
+- Document BLE advertisement and GATT behavior
+- Identify command and notification formats
+- Enable deterministic control of actuators (e.g. shutters)
+- Support local integrations (ESP32 → MQTT → Home Assistant)
+- Avoid cloud services and vendor lock-in
 
-# Thermostats ("Thermostat")
+This project is **documentation-driven**. Code exists to validate protocol
+findings, not as a consumer product.
 
-•	Native Home Assistant climate entity
+---
 
-•	Correct GIRA dual-scale temperature decoding
+## Supported Devices
 
-•	Absolute setpoint control
+| Device | Category | Communication | Status |
+|------|---------|--------------|--------|
+| Gira System 3000 Shutter | Actuator | GATT + Notifications | Tested |
+| Gira System 3000 Thermostat | Control / Sensor | GATT + Notifications | Tested |
+| Gira System 3000 Sensors | Sensor | BLE Advertisements | Observed |
 
-•	Lazy pairing on first use
+---
 
-# Sensors ("Sensor Temp/Brightness")
+## Architecture
 
-•	Temperature sensor
+```
+Gira System 3000 Device
+        │
+        │ BLE (Advertisements + GATT)
+        ▼
+ESP32 (ESP-IDF + NimBLE)
+        │
+        │ MQTT
+        ▼
+Home Assistant
+```
 
-•	Brightness (lux) sensor
+Key properties:
+- Event-driven (no polling)
+- Devices report state autonomously
+- Commands are sent only once per action
 
-•	Passive BLE only (no pairing, no connects)
+---
+
+## Repository Structure
+
+```
+.
+├── README.md
+├── docs
+│   └── protocol.md
+├── examples
+│   ├── mqtt_commands
+│   └── esp32
+└── tools
+```
+
+---
+
+## Pairing and Security Overview
+
+- BLE pairing method: **Just Works**
+- Bonding is required for stable operation
+- Encrypted communication is enabled after pairing
+- Incomplete SMP bonding leads to connection or encryption timeouts
+
+Detailed security behavior is documented in `docs/protocol.md`.
+
+---
+
+## ESP32 Integration
+
+Recommended setup:
+- ESP32-S3
+- ESP-IDF ≥ 5.x
+- NimBLE BLE stack
+- Runtime control via MQTT commands
+
+Pairing, command execution, and disconnect behavior are all handled
+at runtime and do not require firmware recompilation.
+
+---
+
+## Home Assistant Integration
+
+- MQTT-based
+- Fully local
+- State derived from BLE notifications and advertisements
+- No polling, no cloud dependency
+
+This repository does **not** ship a Home Assistant integration.
+It documents the protocol required to build one.
+
+---
+
+## Known Limitations
+
+- Devices emit valid sensor frames only every 2–5 minutes
+- Some BLE advertisements are malformed and must be filtered
+- No official documentation exists from the manufacturer
+
+---
+
+## Development Status
+
+This project is under active reverse-engineering.
+Protocol details may evolve as new observations are made.
+
+---
+
+## Legal Disclaimer
+
+This project is not affiliated with Gira.
+All trademarks and product names are the property of their respective owners.
+
+Reverse-engineering is performed solely for interoperability and research
+purposes.
+
 
 # Bluetooth
 
