@@ -68,9 +68,13 @@ Key properties:
 
 ---
 
-## Pairing and Security Overview
+## Pairing and Security Overview (updated from FLO)
 
-- BLE pairing method: **Just Works**
+1. Per Handy BLE Scanner MAC Adresse Ermitteln und Interface in HomeAssistant anlegen
+2. Gira Interface in Kupplungsmodus bringen
+3. Per HomeAssistant Ab oder Auf antriggern und warten bis Rollladen fährt
+4. Fertig 🙂
+   
 - Bonding is required for stable operation
 - Encrypted communication is enabled after pairing
 - Incomplete SMP bonding leads to connection or encryption timeouts
