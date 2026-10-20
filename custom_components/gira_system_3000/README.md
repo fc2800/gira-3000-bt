@@ -1,4 +1,4 @@
-# Gira System 3000 – Bluetooth Low Energy (BLE)
+# Gira System 3000 – Bluetooth Low Energy (BLE) v2.0.2
 
 Reverse-engineering documentation and tooling for **Gira System 3000**
 Bluetooth Low Energy devices.
@@ -6,6 +6,8 @@ Bluetooth Low Energy devices.
 This repository focuses on understanding and documenting the BLE protocol
 used by Gira System 3000 actuators and sensors in order to enable **local,
 cloud-free control** via ESP32 and Home Assistant.
+
+climate control update
 
 ---
 
