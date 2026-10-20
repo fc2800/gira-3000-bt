@@ -65,6 +65,12 @@ THERMO_CURRENT_TEMP_PREFIX = bytearray.fromhex("F7014101FE1001")
 THERMO_TARGET_TEMP_PREFIX  = bytearray.fromhex("F7006501FF1001")
 THERMO_TEMPERATURE_LENGTH_BYTES = 2
 
+# Captured Quick-Heat reports: FD 10 01 2c = 300 s, FD 10 00 00 = stopped.
+# For FD, the 01 is the HIGH byte of the value, not a fixed suffix byte.
+THERMO_BOOST_TIMER_PREFIX = bytes.fromhex("F7006501FD10")
+THERMO_BOOST_ACTIVE_PREFIX = bytes.fromhex("F7006501FC1001")
+THERMO_BOOST_DURATION_SECONDS = 300
+
 # --------------------------------------------------------------------------------------
 # SENSOR (temperature / brightness) broadcasts
 # --------------------------------------------------------------------------------------

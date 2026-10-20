@@ -1,6 +1,8 @@
 """Bluetooth LE communication for Gira System 3000 BT devices."""
 import asyncio
+from collections.abc import Callable
 import logging
+import time
 from typing import Any, cast, Optional
 
 from bleak import BleakClient, BleakError, BLEDevice
@@ -21,6 +23,7 @@ from .const import (
     GIRA_MANUFACTURER_ID,
     GIRA_SERVICE_UUID,
     GIRA_WRITE_CHAR_UUID,
+    GIRA_READ_CHAR_UUID,
     # Shutter constants
     SHUTTER_COMMAND_PREFIX,
     SHUTTER_COMMAND_SUFFIX,
@@ -45,6 +48,9 @@ from .const import (
     THERMO_CURRENT_TEMP_PREFIX,
     THERMO_TARGET_TEMP_PREFIX,
     THERMO_TEMPERATURE_LENGTH_BYTES,
+    THERMO_BOOST_TIMER_PREFIX,
+    THERMO_BOOST_ACTIVE_PREFIX,
+    THERMO_BOOST_DURATION_SECONDS,
     # Sensor constants
     SENSOR_TEMPERATURE_PREFIX,
     SENSOR_BRIGHTNESS_PREFIX,
@@ -66,12 +72,43 @@ def _thermo_decode_temp_u16(raw: int) -> float:
 
     Read rules (per your reverse engineering):
     - temp <= 21.0°C : raw / 100
-    - temp > 21.0°C  : raw / 100 - 10
+    - temp > 21.0°C  : 21 + (raw - 3100)/ 50 Skala ändert sich und zur Erkennung wird +10° gerechnet
     """
-    temp = raw / 100.0
-    if raw > 2100:  # 21.0°C threshold
-        temp -= 10.0
-    return temp
+    if raw <= 2100:
+        return raw / 100.0
+    return 21 + (raw - 3100) / 50.0
+
+
+def _parse_thermostat_data(payload: bytes) -> dict[str, Any]:
+    """Decode the same captured frames from advertisements or notifications."""
+    data: dict[str, Any] = {}
+    for prefix, key in (
+        (THERMO_CURRENT_TEMP_PREFIX, "current_temperature"),
+        (THERMO_TARGET_TEMP_PREFIX, "target_temperature"),
+    ):
+        idx = payload.find(prefix)
+        if idx != -1 and len(payload) >= idx + len(prefix) + 2:
+            raw = int.from_bytes(payload[idx + len(prefix):idx + len(prefix) + 2], "big")
+            data[key] = _thermo_decode_temp_u16(raw)
+
+    idx = payload.find(THERMO_BOOST_TIMER_PREFIX)
+    if idx != -1 and len(payload) >= idx + len(THERMO_BOOST_TIMER_PREFIX) + 2:
+        offset = idx + len(THERMO_BOOST_TIMER_PREFIX)
+        seconds = int.from_bytes(payload[offset:offset + 2], "big")
+        # The supported Quick-Heat timer is at most five minutes. Reject
+        # unexpected values instead of interpreting unrelated bytes as time.
+        if 0 <= seconds <= THERMO_BOOST_DURATION_SECONDS:
+            data.update(boost_active=seconds > 0, boost_remaining_seconds=seconds)
+            return data
+
+    idx = payload.find(THERMO_BOOST_ACTIVE_PREFIX)
+    if idx != -1 and len(payload) > idx + len(THERMO_BOOST_ACTIVE_PREFIX):
+        active = payload[idx + len(THERMO_BOOST_ACTIVE_PREFIX)]
+        # FC=1 was captured. Inactive is established by FD=0; do not invent
+        # semantics for other FC values without a captured device response.
+        if active == 1:
+            data.update(boost_active=True, boost_remaining_seconds=None)
+    return data
 
 # -----------------------------------------------------------------------------
 # Passive coordinator (advertisements) - parses based on device_type
@@ -98,6 +135,7 @@ class GiraPassiveBluetoothDataUpdateCoordinator(PassiveBluetoothDataUpdateCoordi
         self._device_name = name
         self._device_type = device_type
         self.data = {}
+        self._boost_report_id = 0
         
         LOGGER.debug(
             "Created coordinator instance for %s (%s) type=%s",
@@ -153,35 +191,7 @@ class GiraPassiveBluetoothDataUpdateCoordinator(PassiveBluetoothDataUpdateCoordi
         # THERMOSTAT
         # ---------------------------
         if self._device_type == "thermostat":
-            # MERGE partial broadcasts (do NOT overwrite)
-            data: dict[str, Any] = dict(getattr(self, "data", {}) or {})
-
-            idx = manufacturer_data.find(THERMO_CURRENT_TEMP_PREFIX)
-            if idx != -1 and len(manufacturer_data) >= idx + len(THERMO_CURRENT_TEMP_PREFIX) + 2:
-                raw = int.from_bytes(
-                    manufacturer_data[
-                        idx + len(THERMO_CURRENT_TEMP_PREFIX)
-                        : idx + len(THERMO_CURRENT_TEMP_PREFIX) + 2
-                    ],
-                    "big",
-                )
-                data["current_temperature"] = _thermo_decode_temp_u16(raw)
-
-            idx = manufacturer_data.find(THERMO_TARGET_TEMP_PREFIX)
-            if idx != -1 and len(manufacturer_data) >= idx + len(THERMO_TARGET_TEMP_PREFIX) + 2:
-                raw = int.from_bytes(
-                    manufacturer_data[
-                        idx + len(THERMO_TARGET_TEMP_PREFIX)
-                        : idx + len(THERMO_TARGET_TEMP_PREFIX) + 2
-                    ],
-                    "big",
-                )
-                data["target_temperature"] = _thermo_decode_temp_u16(raw)
-
-            if data:
-                self.data = data
-                self.async_update_listeners()
-                return data
+            return self.async_handle_thermostat_data(bytes(manufacturer_data))
 
         # ---------------------------
         # SENSOR
@@ -209,7 +219,7 @@ class GiraPassiveBluetoothDataUpdateCoordinator(PassiveBluetoothDataUpdateCoordi
                 if raw > SENSOR_TEMP_NEG_BASE:
                     data["sensor_temperature"] = (SENSOR_TEMP_NEG_BASE - raw) / SENSOR_TEMP_NEG_BASE_DIVISOR / SENSOR_TEMP_DIVISOR
                 else:
-                    data["sensor_temperature"] = raw / SENSOR_TEMP_DIVISOR
+                    data["sensor_temperature"] = _thermo_decode_temp_u16(raw)
 
             else:
                 # Log lux conversion
@@ -220,6 +230,19 @@ class GiraPassiveBluetoothDataUpdateCoordinator(PassiveBluetoothDataUpdateCoordi
             self.data = data
             self.async_update_listeners()
             return data
+
+    def async_handle_thermostat_data(self, payload: bytes) -> Optional[dict]:
+        """Merge device feedback without replaying old timer observations."""
+        parsed = _parse_thermostat_data(payload)
+        if not parsed:
+            return None
+        if "boost_active" in parsed:
+            self._boost_report_id += 1
+            parsed["boost_report_id"] = self._boost_report_id
+            parsed["boost_report_received_at"] = time.monotonic()
+        self.data = {**(self.data or {}), **parsed}
+        self.async_update_listeners()
+        return self.data
 
 # ---------------------------
 # SHUTER
@@ -278,12 +301,41 @@ class GiraBLEClient:
         
         self._client: BleakClient | None = None
         self._is_connecting = asyncio.Lock()
+        self._thermostat_listeners: set[Callable[[bytes], Any]] = set()
+        self._notify_client: BleakClient | None = None
 
         self._idle_disconnect_handle = None
         self._idle_disconnect_s = 15.0      # seconds to keep connection open
         self._write_timeout_s = 2.0         # seconds for write_gatt_char
     
         LOGGER.debug("GiraBLEClient initialized for %s (%s)", name, address)
+
+    def async_add_thermostat_listener(self, listener: Callable[[bytes], Any]) -> Callable[[], None]:
+        """Opt thermostat entities into feedback; covers do not subscribe."""
+        self._thermostat_listeners.add(listener)
+        return lambda: self._thermostat_listeners.discard(listener)
+
+    async def _ensure_thermostat_notifications(self, client: BleakClient) -> None:
+        if not self._thermostat_listeners or self._notify_client is client:
+            return
+
+        def _notification(_sender: Any, data: bytearray) -> None:
+            if self._client is not client:
+                return
+            LOGGER.debug("Thermostat notification from %s: %s", self.name, data.hex())
+            for listener in tuple(self._thermostat_listeners):
+                listener(bytes(data))
+
+        try:
+            await asyncio.wait_for(
+                client.start_notify(GIRA_READ_CHAR_UUID, _notification),
+                timeout=self._write_timeout_s,
+            )
+        except (BleakError, asyncio.TimeoutError, NotImplementedError) as err:
+            # Commands must still work when a proxy/device cannot notify.
+            LOGGER.debug("Thermostat notifications unavailable for %s: %s", self.name, err)
+            return
+        self._notify_client = client
     
     # -------------------------------------------------------------------------
     # Idle disconnect helpers
@@ -312,6 +364,7 @@ class GiraBLEClient:
                     await self._client.disconnect()
                 finally:
                     self._client = None
+                    self._notify_client = None
 
     # -------------------------------------------------------------------------
     # Core send path
@@ -324,6 +377,7 @@ class GiraBLEClient:
                 self._cancel_idle_disconnect()
                 LOGGER.debug("Client already connected, sending command directly.")
                 try:
+                    await self._ensure_thermostat_notifications(self._client)
                     LOGGER.debug("Sending command: %s", command.hex())
                     await asyncio.wait_for(
                         self._client.write_gatt_char(GIRA_WRITE_CHAR_UUID, command, response=response),
@@ -339,6 +393,7 @@ class GiraBLEClient:
                     except Exception:
                         pass
                     self._client = None
+                    self._notify_client = None
 
             # Not connected -> connect
             LOGGER.debug("Attempting to connect to %s (%s) to send command.", self.name, self.address)
@@ -360,6 +415,7 @@ class GiraBLEClient:
                 self._client = client
                 LOGGER.info("Successfully connected to %s (%s).", self.name, self.address)
 
+                await self._ensure_thermostat_notifications(client)
                 LOGGER.debug("Sending command: %s", command.hex())
                 await asyncio.wait_for(
                     client.write_gatt_char(GIRA_WRITE_CHAR_UUID, command, response=response),
@@ -379,6 +435,7 @@ class GiraBLEClient:
                 except Exception:
                     pass
                 self._client = None
+                self._notify_client = None
                 raise UpdateFailed(f"Failed to connect and send command to {self.name}: {e}") from e
 
     async def send_set_position_command(self, position_u8: int) -> None:
@@ -447,4 +504,5 @@ class GiraBLEClient:
     async def async_close(self) -> None:
         """Close/disconnect the BLE client."""
         await self._disconnect_now()
+        self._thermostat_listeners.clear()
         
