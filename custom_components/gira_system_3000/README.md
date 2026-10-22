@@ -7,7 +7,17 @@ This repository focuses on understanding and documenting the BLE protocol
 used by Gira System 3000 actuators and sensors in order to enable **local,
 cloud-free control** via ESP32 and Home Assistant.
 
-climate control update
+climate control update 
+- mode"heat" kein "OFF"
+- preset "boost" = 300s und "None"
+shutter update 
+mit genauer Berechnung Rolladen / Jalousie Öffnung in Prozent 
+basierend auf 
+- Höhe Fenster,
+- Rotor radius,
+- Lamellenhöhe,
+- Lamellendicke
+- Spalt zwischen den Lamellen 
 
 ---
 
