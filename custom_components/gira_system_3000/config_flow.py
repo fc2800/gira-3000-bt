@@ -16,6 +16,7 @@ from bleak import BleakClient, BleakError
 
 from .const import DOMAIN
 from .gira_ble import GiraBLEClient
+from .shutter_geometry import GEOMETRY_OPTIONS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -31,6 +32,11 @@ class GiraSystem3000ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
     MINOR_VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: config_entries.ConfigEntry):
+        return GiraShutterOptionsFlow()
 
     def __init__(self) -> None:
         """Initialize the config flow."""
@@ -133,3 +139,40 @@ class GiraSystem3000ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> None:
         """Abort if the device is already configured."""
         pass
+
+
+class GiraShutterOptionsFlow(config_entries.OptionsFlow):
+    """Configure the optional geometric correction per shutter."""
+
+    async def async_step_init(self, user_input=None):
+        if self.config_entry.data.get("device_type", "shutter") != "shutter":
+            return self.async_abort(reason="not_a_shutter")
+        self.context["title_placeholders"] = {"name": self.config_entry.title}
+        errors = {}
+        values = dict(self.config_entry.options)
+        if user_input is not None:
+            from math import isfinite
+
+            values.update(user_input)
+            for key, (default, minimum, maximum) in GEOMETRY_OPTIONS.items():
+                try:
+                    value = float(values.get(key, default))
+                    if not isfinite(value) or not minimum <= value <= maximum:
+                        raise ValueError
+                except (TypeError, ValueError, OverflowError):
+                    errors[key] = "invalid_dimension"
+                else:
+                    values[key] = value
+            if not errors:
+                return self.async_create_entry(title="", data=values)
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema({
+                vol.Required(key, default=values.get(key, default)): vol.All(
+                    vol.Coerce(float), vol.Range(min=minimum, max=maximum)
+                )
+                for key, (default, minimum, maximum) in GEOMETRY_OPTIONS.items()
+            }),
+            description_placeholders={"name": self.config_entry.title},
+            errors=errors,
+        )

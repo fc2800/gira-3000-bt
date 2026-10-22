@@ -1,0 +1,24 @@
+{
+  "options": {
+    "step": {
+      "init": {
+        "title": "{name} – Positionskorrektur",
+        "description": "Rollladen: **{name}**\n\nAlle Maße in cm, individuell für diesen Rollladen. Fensterhöhe 0 deaktiviert die Korrektur. Wickelradius: von der Wellenmitte bis außen zur verbleibenden Wickellage bei vollständig geschlossenem Rollladen.",
+        "data": {
+          "window_height_cm": "Fensterhöhe (cm; 0 = deaktiviert)",
+          "closed_radius_cm": "Wickelradius bei geschlossenem Rollladen (cm)",
+          "layer_thickness_cm": "Wirksame Wickeldicke je Lage (cm)",
+          "slat_height_cm": "Lamellenhöhe geschlossen (cm)",
+          "slat_gap_cm": "Lücke zwischen ausgezogenen Lamellen (cm)"
+        }
+      }
+    },
+    "error": {
+      "invalid_dimension": "Bitte eine endliche Zahl im zulässigen Bereich eingeben."
+    },
+    "abort": {
+      "not_a_shutter": "Diese Einstellung gilt nur für Rollläden."
+    },
+    "flow_title": "{name} – Positionskorrektur"
+  }
+}

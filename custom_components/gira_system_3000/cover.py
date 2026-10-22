@@ -19,6 +19,10 @@ from homeassistant.helpers.update_coordinator import (
 
 from .const import DOMAIN, LOGGER
 from .gira_ble import GiraBLEClient, GiraPassiveBluetoothDataUpdateCoordinator
+from .shutter_geometry import (
+    CONF_WINDOW_HEIGHT, CONF_CORE_RADIUS, CONF_LAYER_THICKNESS,
+    CONF_SLAT_HEIGHT, CONF_SLAT_GAP, GEOMETRY_OPTIONS, ShutterGeometry,
+)
 
 
 async def async_setup_entry(
@@ -62,6 +66,8 @@ class GiraSystem3000Cover(
         """Initialize the cover."""
         super().__init__(coordinator)
         self._client = client
+        self._config_entry = config_entry
+        self._geometry = self._read_geometry()
         self._attr_unique_id = config_entry.entry_id
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, config_entry.entry_id)},
@@ -70,6 +76,30 @@ class GiraSystem3000Cover(
         )
         self._attr_current_cover_position = None  # Initialize the state to None
         LOGGER.debug("Created cover entity for %s", client.name)
+
+    def _read_geometry(self) -> ShutterGeometry | None:
+        """Missing/zero/invalid height preserves the original mapping."""
+        try:
+            options = self._config_entry.options
+            return ShutterGeometry(
+                options.get(CONF_WINDOW_HEIGHT, 0),
+                core_radius=options.get(CONF_CORE_RADIUS, GEOMETRY_OPTIONS[CONF_CORE_RADIUS][0]),
+                layer_thickness=options.get(CONF_LAYER_THICKNESS, GEOMETRY_OPTIONS[CONF_LAYER_THICKNESS][0]),
+                slat_height=options.get(CONF_SLAT_HEIGHT, GEOMETRY_OPTIONS[CONF_SLAT_HEIGHT][0]),
+                slat_gap=options.get(CONF_SLAT_GAP, GEOMETRY_OPTIONS[CONF_SLAT_GAP][0]),
+            )
+        except (TypeError, ValueError, OverflowError):
+            return None
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self._config_entry.add_update_listener(self._async_options_updated)
+        )
+
+    async def _async_options_updated(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self._geometry = self._read_geometry()
+        self.async_write_ha_state()
 
     @property
     def available(self) -> bool:
@@ -117,7 +147,10 @@ class GiraSystem3000Cover(
         if position_pct > 100:
             position_pct = 100
 
-        # Map 0..100% -> 0x00..0xFF (0..255)
+        if self._geometry is not None:
+            position_pct = self._geometry.to_device(position_pct)
+
+        # Map device 0..100% -> 0xFF..0x00 (closed..open)
         pos_u8 = 255 - round(position_pct * 255 / 100)
 
         try:
@@ -130,12 +163,17 @@ class GiraSystem3000Cover(
     def current_cover_position(self) -> int | None:
         """Return the current position of the cover."""
         # Return the cached state attribute
-        return self._attr_current_cover_position
+        position = self._attr_current_cover_position
+        if position is None or self._geometry is None:
+            return position
+        return round(self._geometry.to_opening(position))
 
     @property
     def is_closed(self) -> bool | None:
         """Return if the cover is closed or not."""
-        position = self.current_cover_position
+        # Zero free opening can still have open slat gaps. Only the device's
+        # closed endpoint means fully closed.
+        position = self._attr_current_cover_position
         if position is None:
             return None
         return position == 0

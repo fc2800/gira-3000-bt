@@ -1,0 +1,24 @@
+{
+  "options": {
+    "step": {
+      "init": {
+        "title": "{name} – Position correction",
+        "description": "Roller shutter: **{name}**\n\nAll dimensions in cm, individual to this shutter. Height 0 disables correction. Closed radius: shaft centre to outside of remaining layer with shutter fully closed.",
+        "data": {
+          "window_height_cm": "Window height (cm; 0 = disabled)",
+          "closed_radius_cm": "Winding radius when fully closed (cm)",
+          "layer_thickness_cm": "Effective thickness per winding layer (cm)",
+          "slat_height_cm": "Closed slat height (cm)",
+          "slat_gap_cm": "Gap between extended slats (cm)"
+        }
+      }
+    },
+    "error": {
+      "invalid_dimension": "Enter a finite number within the allowed range."
+    },
+    "abort": {
+      "not_a_shutter": "This setting is only available for shutters."
+    },
+    "flow_title": "{name} – Position correction"
+  }
+}
